@@ -1,6 +1,7 @@
 use std::{
     cmp::min,
     fs,
+    io::ErrorKind,
     path::{Path, PathBuf},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
@@ -113,8 +114,15 @@ struct App {
     details_scroll: usize,
     status: String,
     confirm: Option<ConfirmAction>,
+    notice: Option<Notice>,
     cache_generated_at: u64,
     last_refresh_check: Instant,
+}
+
+#[derive(Debug, Clone)]
+struct Notice {
+    title: String,
+    lines: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -154,6 +162,7 @@ impl App {
             details_scroll: 0,
             status: format!("Loaded cache from {}", format_unix_time(cache.generated_at)),
             confirm: None,
+            notice: None,
             cache_generated_at: cache.generated_at,
             last_refresh_check: Instant::now(),
         };
@@ -193,6 +202,10 @@ impl App {
 
         if let Some(confirm) = &self.confirm {
             render_confirm(frame, frame.area(), confirm);
+        }
+
+        if let Some(notice) = &self.notice {
+            render_notice(frame, frame.area(), notice);
         }
     }
 
@@ -342,6 +355,11 @@ impl App {
     }
 
     fn handle_key(&mut self, key: KeyEvent) -> Result<bool> {
+        if self.notice.is_some() {
+            self.notice = None;
+            return Ok(matches!(key.code, KeyCode::Char('q') | KeyCode::Esc));
+        }
+
         if self.confirm.is_some() {
             return self.handle_confirm_key(key);
         }
@@ -442,7 +460,7 @@ impl App {
         let mut failures = Vec::new();
 
         for plugin in plugins {
-            match delete_plugin_path(&plugin.path, &self.roots) {
+            match delete_plugin_bundle(&plugin, &self.roots) {
                 Ok(()) => deleted += 1,
                 Err(error) => failures.push(format!("{}: {error}", plugin.path.display())),
             }
@@ -452,11 +470,20 @@ impl App {
         if failures.is_empty() {
             self.status = format!("Deleted {deleted} plugin bundle(s)");
         } else {
-            self.status = format!(
-                "Deleted {deleted}; failed {} ({})",
-                failures.len(),
-                failures.join("; ")
-            );
+            let failed_count = failures.len();
+            self.status = format!("Deleted {deleted}; failed {failed_count}");
+            let mut lines = vec![
+                format!("Deleted {deleted} plugin bundle(s)."),
+                format!("Failed to delete {failed_count} plugin bundle(s)."),
+                "".to_string(),
+                "If this is a system plugin under /Library, run vstui with permissions that can write there.".to_string(),
+                "".to_string(),
+            ];
+            lines.extend(failures);
+            self.notice = Some(Notice {
+                title: "Delete failed".to_string(),
+                lines,
+            });
         }
 
         Ok(())
@@ -472,7 +499,9 @@ impl App {
         }
         self.last_refresh_check = Instant::now();
 
-        if roots_changed_since(&self.roots, self.cache_generated_at) {
+        if cached_plugins_changed(&self.plugins)
+            || roots_changed_since(&self.roots, self.cache_generated_at)
+        {
             self.refresh("Plugin directory changed; cache refreshed")?;
         }
         Ok(())
@@ -575,6 +604,32 @@ fn render_confirm(frame: &mut Frame, area: Rect, confirm: &ConfirmAction) {
     frame.render_widget(paragraph, popup);
 }
 
+fn render_notice(frame: &mut Frame, area: Rect, notice: &Notice) {
+    let popup = centered_rect(76, 48, area);
+    frame.render_widget(Clear, popup);
+
+    let mut lines: Vec<Line> = notice
+        .lines
+        .iter()
+        .map(|line| Line::from(line.clone()))
+        .collect();
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "Press any key to dismiss",
+        Style::new().fg(Color::Yellow),
+    )));
+
+    let paragraph = Paragraph::new(lines)
+        .block(
+            Block::new()
+                .title(format!(" {} ", notice.title))
+                .borders(Borders::ALL)
+                .border_style(Style::new().fg(Color::Red)),
+        )
+        .wrap(Wrap { trim: false });
+    frame.render_widget(paragraph, popup);
+}
+
 fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
     let vertical = Layout::default()
         .direction(Direction::Vertical)
@@ -653,8 +708,14 @@ fn load_or_refresh_cache(roots: &[PluginRoot]) -> Result<PluginCache> {
 
 fn cache_is_stale(cache: &PluginCache, roots: &[PluginRoot]) -> bool {
     cache.version != CACHE_VERSION
-        || cache.plugins.iter().any(|plugin| !plugin.path.exists())
+        || cached_plugins_changed(&cache.plugins)
         || roots_changed_since(roots, cache.generated_at)
+}
+
+fn cached_plugins_changed(plugins: &[Plugin]) -> bool {
+    plugins
+        .iter()
+        .any(|plugin| !is_installed_plugin_bundle(&plugin.path, plugin.format))
 }
 
 fn roots_changed_since(roots: &[PluginRoot], generated_at: u64) -> bool {
@@ -726,7 +787,7 @@ fn scan_plugins(roots: &[PluginRoot]) -> Result<Vec<Plugin>> {
 
         for entry in entries.flatten() {
             let path = entry.path();
-            if !is_plugin_bundle(&path, root.format) {
+            if !is_installed_plugin_bundle(&path, root.format) {
                 continue;
             }
 
@@ -755,6 +816,18 @@ fn is_plugin_bundle(path: &Path, format: PluginFormat) -> bool {
     path.extension()
         .and_then(|extension| extension.to_str())
         .is_some_and(|extension| extension.eq_ignore_ascii_case(expected_extension))
+}
+
+fn is_installed_plugin_bundle(path: &Path, format: PluginFormat) -> bool {
+    if !is_plugin_bundle(path, format) {
+        return false;
+    }
+
+    let Ok(metadata) = path.metadata() else {
+        return false;
+    };
+
+    metadata.is_file() || path.join("Contents/Info.plist").is_file()
 }
 
 fn plugin_name(path: &Path) -> String {
@@ -790,20 +863,36 @@ fn read_plist_string(contents: &str, key: &str) -> Option<String> {
     }
 }
 
-fn delete_plugin_path(path: &Path, roots: &[PluginRoot]) -> Result<()> {
+fn delete_plugin_bundle(plugin: &Plugin, roots: &[PluginRoot]) -> Result<()> {
+    let path = &plugin.path;
+
     if !is_under_plugin_root(path, roots) {
         return Err(anyhow!(
             "refusing to delete outside known audio plugin roots"
         ));
     }
 
+    if !is_plugin_bundle(path, plugin.format) {
+        return Err(anyhow!("refusing to delete path with unexpected extension"));
+    }
+
     let metadata = path
-        .metadata()
+        .symlink_metadata()
         .with_context(|| format!("inspect {}", path.display()))?;
-    if metadata.is_dir() {
-        fs::remove_dir_all(path).with_context(|| format!("delete directory {}", path.display()))
+    let file_type = metadata.file_type();
+
+    if file_type.is_symlink() || metadata.is_file() {
+        fs::remove_file(path).with_context(|| format!("delete file {}", path.display()))?;
+    } else if metadata.is_dir() {
+        fs::remove_dir_all(path).with_context(|| format!("delete directory {}", path.display()))?;
     } else {
-        fs::remove_file(path).with_context(|| format!("delete file {}", path.display()))
+        return Err(anyhow!("unsupported plugin path type"));
+    }
+
+    match path.symlink_metadata() {
+        Ok(_) => Err(anyhow!("path still exists after delete")),
+        Err(error) if error.kind() == ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error).with_context(|| format!("verify delete {}", path.display())),
     }
 }
 
@@ -830,4 +919,112 @@ fn unix_now() -> u64 {
 
 fn format_unix_time(timestamp: u64) -> String {
     format!("{timestamp}s since epoch")
+}
+
+#[cfg(test)]
+mod tests {
+    use std::os::unix::fs::symlink;
+
+    use super::*;
+
+    #[test]
+    fn scan_skips_empty_leftover_bundle_directories() {
+        let temp = tempfile::tempdir().expect("create tempdir");
+        fs::create_dir(temp.path().join("Removed.vst3")).expect("create stale bundle");
+        create_plugin_bundle(&temp.path().join("Installed.vst3"));
+
+        let plugins = scan_plugins(&[PluginRoot {
+            path: temp.path().to_path_buf(),
+            format: PluginFormat::Vst3,
+            scope: PluginScope::User,
+        }])
+        .expect("scan plugins");
+
+        assert_eq!(plugins.len(), 1);
+        assert_eq!(plugins[0].name, "Installed");
+    }
+
+    #[test]
+    fn stale_cache_detects_empty_bundle_directories() {
+        let temp = tempfile::tempdir().expect("create tempdir");
+        let path = temp.path().join("Removed.component");
+        fs::create_dir(&path).expect("create stale component");
+
+        let plugins = vec![Plugin {
+            name: "Removed".to_string(),
+            family: "removed".to_string(),
+            format: PluginFormat::AudioUnit,
+            scope: PluginScope::User,
+            path,
+            version: None,
+            modified: None,
+        }];
+
+        assert!(cached_plugins_changed(&plugins));
+    }
+
+    #[test]
+    fn scan_skips_broken_plugin_symlinks() {
+        let temp = tempfile::tempdir().expect("create tempdir");
+        symlink(
+            temp.path().join("missing-target.vst3"),
+            temp.path().join("Ghost.vst3"),
+        )
+        .expect("create broken symlink");
+
+        let plugins = scan_plugins(&[PluginRoot {
+            path: temp.path().to_path_buf(),
+            format: PluginFormat::Vst3,
+            scope: PluginScope::User,
+        }])
+        .expect("scan plugins");
+
+        assert!(plugins.is_empty());
+    }
+
+    #[test]
+    fn delete_plugin_bundle_removes_symlink_without_deleting_target() {
+        let root = tempfile::tempdir().expect("create root tempdir");
+        let target_parent = tempfile::tempdir().expect("create target tempdir");
+        let target = target_parent.path().join("Target.vst3");
+        let link = root.path().join("Linked.vst3");
+        create_plugin_bundle(&target);
+        symlink(&target, &link).expect("create plugin symlink");
+
+        let plugin = Plugin {
+            name: "Linked".to_string(),
+            family: "linked".to_string(),
+            format: PluginFormat::Vst3,
+            scope: PluginScope::User,
+            path: link.clone(),
+            version: None,
+            modified: None,
+        };
+        let roots = [PluginRoot {
+            path: root.path().to_path_buf(),
+            format: PluginFormat::Vst3,
+            scope: PluginScope::User,
+        }];
+
+        delete_plugin_bundle(&plugin, &roots).expect("delete plugin symlink");
+
+        assert!(!link.exists());
+        assert!(target.join("Contents/Info.plist").is_file());
+    }
+
+    fn create_plugin_bundle(path: &Path) {
+        fs::create_dir_all(path.join("Contents")).expect("create bundle contents");
+        fs::write(
+            path.join("Contents/Info.plist"),
+            r#"<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0">
+<dict>
+  <key>CFBundleShortVersionString</key>
+  <string>1.2.3</string>
+</dict>
+</plist>
+"#,
+        )
+        .expect("write plist");
+    }
 }
