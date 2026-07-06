@@ -25,7 +25,8 @@
     "deps/**",
     "dist/**",
     "build/**",
-    "_build/**"
+    "_build/**",
+    "CHANGELOG.md"
   ],
   "plugins": [
     "https://plugins.dprint.dev/typescript-0.95.9.wasm",
