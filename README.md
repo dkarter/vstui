@@ -9,12 +9,6 @@
 ## Features
 
 - Scans standard macOS VST and Logic Pro Audio Unit locations:
-  - `/Library/Audio/Plug-Ins/VST`
-  - `/Library/Audio/Plug-Ins/VST3`
-  - `/Library/Audio/Plug-Ins/Components`
-  - `~/Library/Audio/Plug-Ins/VST`
-  - `~/Library/Audio/Plug-Ins/VST3`
-  - `~/Library/Audio/Plug-Ins/Components`
 - Loads from a JSON cache on startup for fast launch.
 - Refreshes manually with `r`.
 - Refreshes automatically when known plugin directory mtimes change, including after uninstalling a plugin.
