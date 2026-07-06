@@ -1,0 +1,22 @@
+version: '3'
+
+includes:
+  ci: ./taskfiles/ci.yml
+
+tasks:
+  run:
+    desc: Run the VST TUI
+    cmds:
+      - cargo run
+
+  fmt:
+    desc: Format all supported files
+    cmds:
+      - cargo fmt
+      - dprint fmt
+
+  check:
+    desc: Run local checks
+    cmds:
+      - cargo check
+      - cargo test

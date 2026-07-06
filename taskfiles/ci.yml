@@ -1,0 +1,14 @@
+version: '3'
+
+tasks:
+  format:check:
+    desc: Check Rust and repository formatting
+    cmds:
+      - cargo fmt --check
+      - dprint check
+
+  rust:check:
+    desc: Check Rust build and tests
+    cmds:
+      - cargo check
+      - cargo test
