@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.1](https://github.com/dkarter/vstui/compare/v0.2.0...v0.2.1) (2026-07-06)
+
+
+### Bug Fixes
+
+* speed up ci + remove macos intel release ([4e726f5](https://github.com/dkarter/vstui/commit/4e726f5ff1904b3dfeaa9d7464749b4ac1957b20))
+
 ## [0.2.0](https://github.com/dkarter/vstui/compare/v0.1.0...v0.2.0) (2026-07-06)
 
 
