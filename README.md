@@ -14,6 +14,19 @@
 - Refreshes automatically when known plugin directory mtimes change, including after uninstalling a plugin.
 - Deletes either the selected bundle or every related VST2/VST3/AU bundle with confirmation.
 
+## Installation
+
+The recommended way to install VSTUI is using [mise](https://mise.jdx.dev)!
+
+```bash
+mise use -g github:dkarter/vstui
+```
+
+Alternatively, you can download pre-compiled binaries from the latest release on github and
+manually, extract it, and place it somewhere in your `PATH`:
+
+https://github.com/dkarter/vstui/releases/latest
+
 ## Controls
 
 - `j` / `k`: move in the plugin list
