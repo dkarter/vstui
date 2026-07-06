@@ -2,6 +2,10 @@
 
 `vstui` is a fast Ratatui-based terminal UI for viewing and managing macOS audio plugins.
 
+<img width="3220" height="2048" alt="Image" src="https://github.com/user-attachments/assets/46d4c7e3-eda8-4768-bd0b-abbb351b41f9" />
+
+<img width="3222" height="2056" alt="Image" src="https://github.com/user-attachments/assets/da3ef7e9-fac9-4e77-a91b-e86e3caa96c2" />
+
 ## Features
 
 - Scans standard macOS VST and Logic Pro Audio Unit locations:
