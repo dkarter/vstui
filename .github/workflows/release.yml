@@ -160,10 +160,10 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           TAG_NAME: ${{ needs.release-please.outputs.tag_name }}
-        run: gh release upload "$TAG_NAME" dist/* --clobber=false
+        run: gh release upload "$TAG_NAME" dist/* --repo "$GITHUB_REPOSITORY" --clobber=false
 
       - name: Publish draft release
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           TAG_NAME: ${{ needs.release-please.outputs.tag_name }}
-        run: gh release edit "$TAG_NAME" --draft=false --latest
+        run: gh release edit "$TAG_NAME" --repo "$GITHUB_REPOSITORY" --draft=false --latest
