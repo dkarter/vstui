@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.2](https://github.com/dkarter/vstui/compare/v0.2.1...v0.2.2) (2026-07-06)
+
+
+### Bug Fixes
+
+* release asset upload ([ff63e08](https://github.com/dkarter/vstui/commit/ff63e082b2a8a4caa15b3127443bf0e6b4acce05))
+
 ## [0.2.1](https://github.com/dkarter/vstui/compare/v0.2.0...v0.2.1) (2026-07-06)
 
 
